@@ -1,11 +1,19 @@
-<div align="center">
+# ShopHunter
 
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+The ultimate hunter tool for Shopify Agencies. Find high-intent leads with precision intelligence and verified data.
 
-  <h1>Built with AI Studio</h2>
+## Features
+- Lead Generation & Analytics
+- Strategy Centre
+- Success Projections
+- AI-Powered Ghostwritten Emails
 
-  <p>The fastest path from prompt to production with Gemini.</p>
+## Development
 
-  <a href="https://aistudio.google.com/apps">Start building</a>
+This project was built using Google AI Studio. 
 
-</div>
+To run locally:
+\`\`\`bash
+npm install
+npm run dev
+\`\`\`
