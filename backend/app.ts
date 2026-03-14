@@ -9,7 +9,10 @@ import leadRoutes from "./routes/leadRoutes.ts";
 import profileRoutes from "./routes/profileRoutes.ts";
 import proxyRoutes from "./routes/proxyRoutes.ts";
 import billingRoutes from "./routes/billingRoutes.ts";
+import adminRoutes from "./routes/adminRoutes.ts";
 import archiver from "archiver";
+import { authenticate } from "./middleware/auth.ts";
+import { syncUser } from "./middleware/syncUser.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -29,17 +32,26 @@ export async function createApp() {
     crossOriginEmbedderPolicy: false
   }));
 
-  app.use("/api/", apiLimiter);
+  app.use("/api/health", (req, res) => {
+    res.json({ status: "ok", timestamp: new Date().toISOString() });
+  });
 
+  app.get("/api/me", authenticate, (req: any, res) => {
+    res.json(req.user);
+  });
+
+  // Billing webhook needs to be BEFORE express.json() and authenticate
   app.use("/api/billing", billingRoutes);
+
   app.use(express.json());
+  app.use("/api/", apiLimiter);
+  app.use("/api/", authenticate);
+  app.use("/api/", syncUser);
+
   app.use("/api/leads", leadRoutes);
   app.use("/api/profiles", profileRoutes);
   app.use("/api/proxy", proxyRoutes);
-
-  app.get("/api/health", (req, res) => {
-    res.json({ status: "ok", timestamp: new Date().toISOString() });
-  });
+  app.use("/api/admin", adminRoutes);
 
   app.get("/api/download-source", (req, res) => {
     res.attachment('shophunter-source.zip');

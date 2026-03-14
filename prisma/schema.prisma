@@ -1,0 +1,155 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// --- USER & SUBSCRIPTION ---
+
+model User {
+  id                 String         @id @default(uuid())
+  email              String         @unique
+  name               String?
+  role               UserRole       @default(USER)
+  plan               Plan           @default(FREE)
+  stripeId           String?        @unique
+  subscriptionStatus String?
+  subscriptionId     String?
+  variantId          String?
+  credits            Int            @default(100)
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  
+  // Relationships
+  jobs          DiscoveryJob[]
+  leads         Lead[]
+  campaigns     Campaign[]
+  templates     Template[]
+  profiles      BusinessProfile[]
+}
+
+enum UserRole {
+  USER
+  ADMIN
+  SUPERADMIN
+}
+
+model SystemConfig {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String   @db.Text
+  updatedAt DateTime @updatedAt
+}
+
+model BusinessProfile {
+  id        String   @id @default(cuid())
+  name      String
+  data      Json     // Stores the full profile object
+  
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([id, userId])
+}
+
+enum Plan {
+  FREE
+  PRO
+  AGENCY
+}
+
+// --- INTELLIGENCE & DISCOVERY ---
+
+model DiscoveryJob {
+  id          String    @id @default(cuid())
+  query       String
+  status      JobStatus @default(PENDING)
+  progress    Int       @default(0)
+  resultCount Int       @default(0)
+  
+  user        User      @relation(fields: [userId], references: [id])
+  userId      String
+  
+  leads       Lead[]    @relation("JobResults")
+  createdAt   DateTime  @default(now())
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+// --- CLIENT CRM ---
+
+model Lead {
+  id            String     @id @default(cuid())
+  name          String
+  url           String
+  niche         String?
+  revenue       String?
+  data          Json?      // Stores the full lead object for flexibility
+  status        LeadStatus @default(NEW)
+  notes         String?    @db.Text
+  
+  user          User       @relation(fields: [userId], references: [id])
+  userId        String
+  
+  job           DiscoveryJob? @relation("JobResults", fields: [jobId], references: [id])
+  jobId         String?
+  
+  campaign      Campaign?  @relation(fields: [campaignId], references: [id])
+  campaignId    String?
+  
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  @@unique([url, userId])
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  CLOSED
+  ARCHIVED
+}
+
+// --- OUTREACH CENTER ---
+
+model Campaign {
+  id        String         @id @default(cuid())
+  name      String
+  status    CampaignStatus @default(ACTIVE)
+  
+  user      User           @relation(fields: [userId], references: [id])
+  userId    String
+  
+  leads     Lead[]
+  createdAt DateTime       @default(now())
+}
+
+enum CampaignStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+}
+
+model Template {
+  id        String   @id @default(cuid())
+  name      String
+  subject   String
+  body      String   @db.Text
+  
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+  
+  createdAt DateTime @default(now())
+}

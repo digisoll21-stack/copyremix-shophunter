@@ -6,9 +6,9 @@ export function connectSocket(userId: string) {
   if (socket) return socket;
 
   const apiUrl = import.meta.env.VITE_API_URL || "";
-  
+
   socket = io(apiUrl, {
-    query: { userId }
+    query: { userId },
   });
 
   socket.on("connect", () => {

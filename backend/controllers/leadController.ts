@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { getSupabase } from "../../shared/services/supabase.ts";
+import { prisma } from "../lib/prisma.ts";
 import * as huntService from "../services/huntService.ts";
 
 export const startHunt = async (req: any, res: Response) => {
@@ -22,7 +22,12 @@ export const startHunt = async (req: any, res: Response) => {
 export const getJobs = async (req: any, res: Response) => {
   try {
     const userId = req.user.id;
-    const jobs = huntService.getUserJobs(userId);
+    // Fetch jobs from Prisma
+    const jobs = await prisma.discoveryJob.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      take: 10
+    });
     res.json(jobs);
   } catch (err: any) {
     console.error("Failed to get jobs:", err);
@@ -32,33 +37,28 @@ export const getJobs = async (req: any, res: Response) => {
 
 export const getLeads = async (req: any, res: Response) => {
   try {
-    const supabase = getSupabase();
-    if (!supabase) {
-      return res.json([]);
-    }
-
     const { niche, limit } = req.query;
     const userId = req.user.id;
     
-    let query = supabase
-      .from('leads')
-      .select('*')
-      .eq('user_id', userId);
+    const leads = await prisma.lead.findMany({
+      where: {
+        userId,
+        ...(niche ? {
+          OR: [
+            { niche: { contains: String(niche), mode: 'insensitive' } },
+            { name: { contains: String(niche), mode: 'insensitive' } }
+          ]
+        } : {})
+      },
+      orderBy: { createdAt: 'desc' },
+      take: Number(limit) || 100
+    });
 
-    if (niche) {
-      query = query.ilike('data', `%${niche}%`);
-    }
-
-    const { data, error } = await query
-      .order('created_at', { ascending: false })
-      .limit(Number(limit) || 100);
-
-    if (error) throw error;
-
-    res.json(data.map((l: any) => ({
-      ...JSON.parse(l.data),
+    res.json(leads.map(l => ({
+      ...((l.data as any) || {}),
       status: l.status,
-      notes: l.notes
+      notes: l.notes,
+      id: l.id
     })));
   } catch (err: any) {
     console.error("Failed to fetch leads:", err);
@@ -68,28 +68,35 @@ export const getLeads = async (req: any, res: Response) => {
 
 export const saveLeads = async (req: any, res: Response) => {
   try {
-    const supabase = getSupabase();
-    if (!supabase) {
-      return res.status(503).json({ error: "Database not configured" });
-    }
-
     const leads = Array.isArray(req.body) ? req.body : [req.body];
     const userId = req.user.id;
     
-    const leadsToUpsert = leads.map(lead => ({
-      url: lead.url,
-      name: lead.name,
-      status: lead.status || 'New',
-      notes: lead.notes || '',
-      user_id: userId,
-      data: JSON.stringify(lead)
-    }));
+    const operations = leads.map(lead => 
+      prisma.lead.upsert({
+        where: {
+          url_userId: {
+            url: lead.url,
+            userId
+          }
+        },
+        update: {
+          name: lead.name,
+          data: lead,
+          status: lead.status || 'New',
+          notes: lead.notes || ''
+        },
+        create: {
+          url: lead.url,
+          name: lead.name,
+          status: lead.status || 'New',
+          notes: lead.notes || '',
+          userId,
+          data: lead
+        }
+      })
+    );
 
-    const { error } = await supabase
-      .from('leads')
-      .upsert(leadsToUpsert, { onConflict: 'url,user_id' });
-
-    if (error) throw error;
+    await prisma.$transaction(operations);
 
     res.json({ success: true, count: leads.length });
   } catch (err: any) {
@@ -100,28 +107,24 @@ export const saveLeads = async (req: any, res: Response) => {
 
 export const updateLead = async (req: any, res: Response) => {
   try {
-    const supabase = getSupabase();
-    if (!supabase) {
-      return res.status(503).json({ error: "Database not configured" });
-    }
-
     const { url } = req.params;
     const { status, notes, data } = req.body;
     const userId = req.user.id;
     
-    const updates: any = {};
-    if (status !== undefined) updates.status = status;
-    if (notes !== undefined) updates.notes = notes;
-    if (data !== undefined) updates.data = JSON.stringify(data);
+    await prisma.lead.update({
+      where: {
+        url_userId: {
+          url,
+          userId
+        }
+      },
+      data: {
+        ...(status !== undefined && { status }),
+        ...(notes !== undefined && { notes }),
+        ...(data !== undefined && { data })
+      }
+    });
 
-    const { error } = await supabase
-      .from('leads')
-      .update(updates)
-      .eq('url', url)
-      .eq('user_id', userId);
-
-    if (error) throw error;
-    
     res.json({ success: true });
   } catch (err: any) {
     console.error("Failed to update lead:", err);
@@ -131,20 +134,18 @@ export const updateLead = async (req: any, res: Response) => {
 
 export const deleteLead = async (req: any, res: Response) => {
   try {
-    const supabase = getSupabase();
-    if (!supabase) {
-      return res.status(503).json({ error: "Database not configured" });
-    }
-
     const { url } = req.params;
     const userId = req.user.id;
-    const { error } = await supabase
-      .from('leads')
-      .delete()
-      .eq('url', url)
-      .eq('user_id', userId);
+    
+    await prisma.lead.delete({
+      where: {
+        url_userId: {
+          url,
+          userId
+        }
+      }
+    });
 
-    if (error) throw error;
     res.json({ success: true });
   } catch (err: any) {
     console.error("Failed to delete lead:", err);
@@ -162,7 +163,6 @@ export const verifyEmail = async (req: any, res: Response) => {
   }
 
   try {
-    const supabase = getSupabase();
     let verificationResult = { is_valid: true, score: 0.8 };
 
     if (apiKey) {
@@ -180,18 +180,13 @@ export const verifyEmail = async (req: any, res: Response) => {
       verificationResult = { is_valid: isValid, score: isValid ? 0.95 : 0.1 };
     }
 
-    if (verificationResult.is_valid && supabase) {
-      const { data: leadDataRow, error: fetchError } = await supabase
-        .from('leads')
-        .select('data')
-        .eq('url', url)
-        .eq('user_id', userId)
-        .single();
+    if (verificationResult.is_valid) {
+      const lead = await prisma.lead.findUnique({
+        where: { url_userId: { url, userId } }
+      });
 
-      if (fetchError) throw fetchError;
-
-      if (leadDataRow) {
-        const leadData = JSON.parse(leadDataRow.data);
+      if (lead) {
+        const leadData = (lead.data as any) || {};
         const updatedData = {
           ...leadData,
           verificationStatus: 'Verified',
@@ -203,13 +198,10 @@ export const verifyEmail = async (req: any, res: Response) => {
           }
         };
 
-        const { error: updateError } = await supabase
-          .from('leads')
-          .update({ data: JSON.stringify(updatedData) })
-          .eq('url', url)
-          .eq('user_id', userId);
-
-        if (updateError) throw updateError;
+        await prisma.lead.update({
+          where: { id: lead.id },
+          data: { data: updatedData }
+        });
 
         return res.json({ success: true, lead: updatedData });
       }
